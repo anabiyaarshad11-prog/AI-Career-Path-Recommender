@@ -1,0 +1,123 @@
+"""
+ai_advisor.py
+-------------
+Wraps the OpenAI API to turn the ML model's raw role matches into
+personalized, readable career guidance for an intern: why each role
+fits, and a tailored learning path.
+
+Requires an OPENAI_API_KEY environment variable. If it's not set, the
+functions fall back to a deterministic, template-based explanation so
+the app still works offline / without a key (useful for demos).
+"""
+
+import os
+import json
+
+try:
+    from openai import OpenAI
+    _client = OpenAI() if os.environ.get("OPENAI_API_KEY") else None
+except Exception:
+    _client = None
+
+MODEL_NAME = "gpt-4o-mini"
+
+
+def is_ai_enabled():
+    return _client is not None
+
+
+def generate_career_narrative(user_name, user_skills, user_interests, matches):
+    """
+    matches: list of (role_dict, score) from ml_model.RoleMatcher.match_roles
+
+    Returns a dict:
+      {
+        "summary": str,
+        "roles": [
+          {"title": str, "score": float, "why": str, "learning_path": [str, ...]}
+        ]
+      }
+    """
+    if not is_ai_enabled():
+        return _fallback_narrative(user_name, user_skills, user_interests, matches)
+
+    roles_payload = [
+        {
+            "title": role["title"],
+            "score": score,
+            "description": role["description"],
+            "default_learning_path": role["learning_path"],
+        }
+        for role, score in matches
+    ]
+
+    system_prompt = (
+        "You are a supportive, honest career coach for interns. "
+        "You will be given a user's skills, interests, and a shortlist of "
+        "candidate job roles with match scores from a recommender model. "
+        "For each role, write a short, encouraging but realistic explanation "
+        "(2-3 sentences) of why it could be a good fit given their specific "
+        "skills/interests, referencing the provided default learning path "
+        "but personalizing the ORDER and EMPHASIS based on what they already "
+        "know. Also write one overall 2-sentence summary. "
+        "Respond ONLY with strict JSON, no markdown fences, matching this shape: "
+        '{"summary": "...", "roles": [{"title": "...", "why": "...", '
+        '"learning_path": ["...", "..."]}]}'
+    )
+
+    user_prompt = json.dumps({
+        "name": user_name,
+        "skills": user_skills,
+        "interests": user_interests,
+        "candidate_roles": roles_payload,
+    })
+
+    try:
+        response = _client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.6,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        parsed = json.loads(raw)
+
+        # attach scores back in (model doesn't need to echo numbers accurately)
+        score_by_title = {role["title"]: score for role, score in matches}
+        for r in parsed.get("roles", []):
+            r["score"] = score_by_title.get(r["title"], 0)
+        return parsed
+    except Exception as e:
+        fallback = _fallback_narrative(user_name, user_skills, user_interests, matches)
+        fallback["summary"] = (
+            f"(AI narrative unavailable, showing default explanations — {e}) "
+            + fallback["summary"]
+        )
+        return fallback
+
+
+def _fallback_narrative(user_name, user_skills, user_interests, matches):
+    roles_out = []
+    for role, score in matches:
+        matched_skills = set(s.lower().replace(" ", "_") for s in user_skills) & set(
+            role["required_skills"]
+        )
+        why = (
+            f"You already have {', '.join(matched_skills) if matched_skills else 'some relevant foundations'} "
+            f"which overlaps with what {role['title']}s typically need. "
+            f"{role['description']}"
+        )
+        roles_out.append({
+            "title": role["title"],
+            "score": score,
+            "why": why,
+            "learning_path": role["learning_path"],
+        })
+    summary = (
+        f"Hi {user_name or 'there'}, based on your current skills and interests, "
+        f"here are your top matched roles ranked by fit."
+    )
+    return {"summary": summary, "roles": roles_out}
