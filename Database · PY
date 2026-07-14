@@ -1,0 +1,177 @@
+"""
+database.py
+-----------
+Lightweight SQLite persistence layer for:
+  - intern profiles (skills, interests)
+  - recommendation snapshots (so we can see how suggestions evolve)
+  - learning path progress (per role, per step, completed or not, timestamp)
+
+No external DB server required — a single local file, db/career_tool.db.
+"""
+
+import sqlite3
+import json
+from datetime import datetime
+from pathlib import Path
+
+DB_DIR = Path(__file__).parent / "db"
+DB_PATH = DB_DIR / "career_tool.db"
+
+
+def _connect():
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db():
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS interns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            skills TEXT NOT NULL,
+            interests TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intern_id INTEGER NOT NULL,
+            role_title TEXT NOT NULL,
+            score REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (intern_id) REFERENCES interns(id)
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intern_id INTEGER NOT NULL,
+            role_title TEXT NOT NULL,
+            step TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            UNIQUE(intern_id, role_title, step),
+            FOREIGN KEY (intern_id) REFERENCES interns(id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def upsert_intern(name, skills, interests):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM interns WHERE name = ?", (name,))
+    row = cur.fetchone()
+    if row:
+        intern_id = row[0]
+        cur.execute(
+            "UPDATE interns SET skills = ?, interests = ? WHERE id = ?",
+            (json.dumps(skills), json.dumps(interests), intern_id),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO interns (name, skills, interests, created_at) VALUES (?, ?, ?, ?)",
+            (name, json.dumps(skills), json.dumps(interests), datetime.utcnow().isoformat()),
+        )
+        intern_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return intern_id
+
+
+def list_interns():
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM interns ORDER BY name")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_intern(name):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, skills, interests FROM interns WHERE name = ?", (name,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "name": row[1],
+        "skills": json.loads(row[2]),
+        "interests": json.loads(row[3]),
+    }
+
+
+def save_recommendations(intern_id, matches):
+    """matches: list of (role_dict, score)"""
+    conn = _connect()
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    for role, score in matches:
+        cur.execute(
+            "INSERT INTO recommendations (intern_id, role_title, score, created_at) VALUES (?, ?, ?, ?)",
+            (intern_id, role["title"], score, now),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_recommendation_history(intern_id):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT role_title, score, created_at FROM recommendations "
+        "WHERE intern_id = ? ORDER BY created_at",
+        (intern_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def set_step_progress(intern_id, role_title, step, completed):
+    conn = _connect()
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    cur.execute("""
+        INSERT INTO progress (intern_id, role_title, step, completed, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(intern_id, role_title, step)
+        DO UPDATE SET completed = excluded.completed, updated_at = excluded.updated_at
+    """, (intern_id, role_title, step, int(completed), now))
+    conn.commit()
+    conn.close()
+
+
+def get_progress(intern_id, role_title):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT step, completed, updated_at FROM progress "
+        "WHERE intern_id = ? AND role_title = ? ORDER BY id",
+        (intern_id, role_title),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_all_progress(intern_id):
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT role_title, step, completed, updated_at FROM progress "
+        "WHERE intern_id = ? ORDER BY role_title, id",
+        (intern_id,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
