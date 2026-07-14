@@ -1,0 +1,157 @@
+{
+  "skills_taxonomy": [
+    "python", "javascript", "sql", "java", "c++", "html_css", "react",
+    "data_analysis", "machine_learning", "statistics", "excel",
+    "communication", "public_speaking", "writing", "design", "figma",
+    "project_management", "marketing", "sales", "finance", "accounting",
+    "cloud_aws", "docker", "linux", "networking", "cybersecurity",
+    "product_management", "ux_research", "video_editing", "seo"
+  ],
+  "interests_taxonomy": [
+    "building_products", "solving_puzzles", "working_with_data",
+    "helping_people", "visual_design", "storytelling", "business_strategy",
+    "research", "automation", "security", "leadership", "startups"
+  ],
+  "roles": [
+    {
+      "id": "software_engineer",
+      "title": "Software Engineer",
+      "required_skills": ["python", "javascript", "sql", "java", "c++"],
+      "related_interests": ["building_products", "solving_puzzles", "automation"],
+      "description": "Designs, builds, and maintains software applications and systems.",
+      "learning_path": [
+        "Master a core language (Python or Java) through 2-3 real projects",
+        "Learn data structures & algorithms (arrays, trees, graphs, DP)",
+        "Build a full-stack project using a web framework (Flask/Django/Express)",
+        "Learn Git, testing, and CI/CD basics",
+        "Contribute to an open-source repo or build a portfolio project"
+      ]
+    },
+    {
+      "id": "data_analyst",
+      "title": "Data Analyst",
+      "required_skills": ["sql", "excel", "data_analysis", "statistics", "python"],
+      "related_interests": ["working_with_data", "research", "solving_puzzles"],
+      "description": "Turns raw data into actionable insights using queries, statistics, and visualization.",
+      "learning_path": [
+        "Get comfortable with SQL (joins, aggregations, window functions)",
+        "Learn Excel/Sheets for quick analysis and pivot tables",
+        "Learn Python (pandas) for larger datasets",
+        "Study basic statistics: distributions, hypothesis testing, correlation",
+        "Build a dashboard (Tableau/Power BI/Plotly) from a public dataset"
+      ]
+    },
+    {
+      "id": "ml_engineer",
+      "title": "Machine Learning Engineer",
+      "required_skills": ["python", "machine_learning", "statistics", "sql", "cloud_aws"],
+      "related_interests": ["working_with_data", "research", "automation", "solving_puzzles"],
+      "description": "Builds and deploys machine learning models into production systems.",
+      "learning_path": [
+        "Solidify Python and numpy/pandas fundamentals",
+        "Learn core ML concepts (regression, classification, evaluation metrics)",
+        "Build models with scikit-learn, then a deep learning framework (TensorFlow/PyTorch)",
+        "Learn to deploy a model as an API (Flask/FastAPI + Docker)",
+        "Study MLOps basics: versioning, monitoring, retraining"
+      ]
+    },
+    {
+      "id": "product_manager",
+      "title": "Product Manager",
+      "required_skills": ["communication", "project_management", "data_analysis", "excel"],
+      "related_interests": ["building_products", "business_strategy", "leadership", "storytelling"],
+      "description": "Defines product vision and coordinates teams to ship features that matter.",
+      "learning_path": [
+        "Learn product fundamentals: user stories, prioritization frameworks (RICE, MoSCoW)",
+        "Practice writing PRDs (product requirement docs)",
+        "Learn basic SQL/analytics to make data-informed decisions",
+        "Shadow or run a small feature launch end-to-end",
+        "Build storytelling/communication skills via presentations"
+      ]
+    },
+    {
+      "id": "ux_designer",
+      "title": "UX/UI Designer",
+      "required_skills": ["design", "figma", "html_css", "communication"],
+      "related_interests": ["visual_design", "helping_people", "storytelling"],
+      "description": "Designs intuitive, user-centered digital experiences.",
+      "learning_path": [
+        "Learn design fundamentals: layout, typography, color theory",
+        "Master a design tool (Figma)",
+        "Learn user research basics: interviews, usability testing",
+        "Build 2-3 case studies solving real user problems",
+        "Learn basic HTML/CSS to collaborate better with engineers"
+      ]
+    },
+    {
+      "id": "cybersecurity_analyst",
+      "title": "Cybersecurity Analyst",
+      "required_skills": ["networking", "linux", "cybersecurity", "python"],
+      "related_interests": ["security", "solving_puzzles", "research"],
+      "description": "Protects systems and data by identifying and mitigating security risks.",
+      "learning_path": [
+        "Learn networking fundamentals (TCP/IP, DNS, firewalls)",
+        "Get comfortable with Linux command line",
+        "Study common attack types (phishing, SQLi, XSS) and defenses",
+        "Practice on a platform like TryHackMe or HackTheBox",
+        "Pursue an entry certification (Security+) as a milestone"
+      ]
+    },
+    {
+      "id": "marketing_associate",
+      "title": "Marketing Associate",
+      "required_skills": ["marketing", "seo", "writing", "communication", "data_analysis"],
+      "related_interests": ["storytelling", "business_strategy", "helping_people"],
+      "description": "Plans and executes campaigns that grow brand awareness and demand.",
+      "learning_path": [
+        "Learn marketing fundamentals: funnels, positioning, segmentation",
+        "Learn SEO basics and content writing",
+        "Get familiar with an analytics tool (Google Analytics)",
+        "Run a small real or simulated campaign end-to-end",
+        "Learn to read campaign data and iterate"
+      ]
+    },
+    {
+      "id": "financial_analyst",
+      "title": "Financial Analyst",
+      "required_skills": ["finance", "accounting", "excel", "data_analysis", "statistics"],
+      "related_interests": ["working_with_data", "business_strategy", "research"],
+      "description": "Analyzes financial data to guide business and investment decisions.",
+      "learning_path": [
+        "Learn accounting fundamentals (financial statements)",
+        "Master Excel modeling (DCF, sensitivity analysis)",
+        "Study financial statistics and valuation basics",
+        "Practice building a company valuation model",
+        "Learn to present findings clearly to non-finance stakeholders"
+      ]
+    },
+    {
+      "id": "cloud_devops_engineer",
+      "title": "Cloud/DevOps Engineer",
+      "required_skills": ["cloud_aws", "docker", "linux", "python", "networking"],
+      "related_interests": ["automation", "solving_puzzles", "security"],
+      "description": "Builds and maintains the infrastructure that runs and scales applications.",
+      "learning_path": [
+        "Learn Linux fundamentals and shell scripting",
+        "Learn core AWS services (EC2, S3, IAM, VPC)",
+        "Learn Docker and basic container orchestration",
+        "Build a CI/CD pipeline for a sample project",
+        "Learn infrastructure-as-code basics (Terraform)"
+      ]
+    },
+    {
+      "id": "technical_writer",
+      "title": "Technical Writer",
+      "required_skills": ["writing", "communication", "html_css"],
+      "related_interests": ["storytelling", "helping_people", "research"],
+      "description": "Creates clear documentation and educational content for technical products.",
+      "learning_path": [
+        "Study clear technical writing principles (plain language, structure)",
+        "Learn basic Markdown/HTML for docs sites",
+        "Practice documenting a small open-source project",
+        "Learn to work with API references (OpenAPI/Swagger)",
+        "Build a writing portfolio with 3-4 samples"
+      ]
+    }
+  ]
+}
