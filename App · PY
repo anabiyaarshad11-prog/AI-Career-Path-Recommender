@@ -1,0 +1,220 @@
+"""
+app.py
+------
+Streamlit front-end for the Intern Career Recommendation Tool.
+
+Flow:
+  1. Intern enters their name, skills, and interests.
+  2. ml_model.RoleMatcher (TensorFlow) scores every known job role.
+  3. ai_advisor (OpenAI API) turns the top matches into a personalized
+     narrative + tailored learning path.
+  4. Results + a snapshot of scores are saved to SQLite (database.py).
+  5. A "Progress" tab lets the intern check off learning-path steps and
+     see completion trend over time.
+
+Run with:  streamlit run app.py
+"""
+
+import streamlit as st
+import pandas as pd
+
+from ml_model import get_matcher
+from ai_advisor import generate_career_narrative, is_ai_enabled
+import database as db
+
+st.set_page_config(
+    page_title="Intern Career Path Recommender",
+    page_icon="🧭",
+    layout="wide",
+)
+
+db.init_db()
+
+# ---------------------------------------------------------------------
+# Extra dark-theme polish (cards, badges) on top of .streamlit/config.toml
+# ---------------------------------------------------------------------
+st.markdown("""
+<style>
+.role-card {
+    background: #1A1D26;
+    border: 1px solid #2A2E3A;
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+}
+.score-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #7C5CFF, #4C8BF5);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.step-done { color: #6FCF97; }
+.step-pending { color: #B8B9C3; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🧭 Intern Career Path Recommender")
+st.caption(
+    "Enter your skills and interests to get AI-personalized job role "
+    "suggestions and a tailored learning path — then track your progress."
+)
+
+if not is_ai_enabled():
+    st.info(
+        "OPENAI_API_KEY is not set — showing rule-based explanations. "
+        "Set the environment variable to enable richer, AI-generated "
+        "narrative recommendations.",
+        icon="ℹ️",
+    )
+
+matcher = get_matcher()
+
+tab_recommend, tab_progress = st.tabs(["🔎 Get Recommendations", "📈 My Progress"])
+
+# ---------------------------------------------------------------------
+# TAB 1: Recommendations
+# ---------------------------------------------------------------------
+with tab_recommend:
+    with st.sidebar:
+        st.header("Your Profile")
+        name = st.text_input("Name", placeholder="e.g. Alex Kim")
+
+        st.subheader("Skills")
+        skills_selected = st.multiselect(
+            "Pick from the list",
+            options=matcher.skills,
+            format_func=lambda s: s.replace("_", " ").title(),
+        )
+        extra_skills = st.text_input(
+            "Other skills (comma-separated)", placeholder="e.g. Photoshop, Git"
+        )
+
+        st.subheader("Interests")
+        interests_selected = st.multiselect(
+            "Pick from the list",
+            options=matcher.interests,
+            format_func=lambda i: i.replace("_", " ").title(),
+        )
+
+        top_k = st.slider("Number of role suggestions", 1, 5, 3)
+        submitted = st.button("✨ Get My Career Recommendations", use_container_width=True)
+
+    if submitted:
+        if not name.strip():
+            st.warning("Please enter your name in the sidebar so we can save your progress.")
+        else:
+            all_skills = list(skills_selected) + [
+                s.strip() for s in extra_skills.split(",") if s.strip()
+            ]
+            with st.spinner("Matching your profile against known career paths..."):
+                matches = matcher.match_roles(all_skills, interests_selected, top_k=top_k)
+
+            with st.spinner("Generating your personalized guidance..."):
+                narrative = generate_career_narrative(
+                    name, all_skills, interests_selected, matches
+                )
+
+            intern_id = db.upsert_intern(name, all_skills, interests_selected)
+            db.save_recommendations(intern_id, matches)
+            st.session_state["last_intern"] = name
+            st.session_state["last_matches"] = matches
+            st.session_state["last_narrative"] = narrative
+
+    if "last_narrative" in st.session_state:
+        narrative = st.session_state["last_narrative"]
+        st.subheader("Summary")
+        st.write(narrative["summary"])
+
+        st.subheader("Top Matched Roles")
+        for role_info in narrative["roles"]:
+            st.markdown(
+                f"""
+                <div class="role-card">
+                    <span class="score-badge">{role_info['score']}% match</span>
+                    <h4 style="margin-top:10px;margin-bottom:6px;">{role_info['title']}</h4>
+                    <p style="color:#B8B9C3;">{role_info['why']}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            with st.expander(f"📚 Learning path for {role_info['title']}"):
+                for i, step in enumerate(role_info["learning_path"], start=1):
+                    st.markdown(f"**{i}.** {step}")
+
+        st.success(
+            "Saved! Head to the **My Progress** tab to check off learning-path "
+            "steps and track your growth over time."
+        )
+
+# ---------------------------------------------------------------------
+# TAB 2: Progress tracking
+# ---------------------------------------------------------------------
+with tab_progress:
+    st.subheader("Track Your Learning Progress")
+
+    existing = db.list_interns()
+    names = [n for _, n in existing]
+    default_index = (
+        names.index(st.session_state["last_intern"])
+        if "last_intern" in st.session_state and st.session_state["last_intern"] in names
+        else 0
+    )
+
+    if not names:
+        st.info("No profiles yet — get recommendations first in the other tab.")
+    else:
+        chosen_name = st.selectbox("Select your profile", names, index=default_index)
+        intern = db.get_intern(chosen_name)
+
+        history = db.get_recommendation_history(intern["id"])
+        if history:
+            df_hist = pd.DataFrame(history, columns=["Role", "Score", "Timestamp"])
+            latest_scores = (
+                df_hist.sort_values("Timestamp")
+                .groupby("Role")
+                .tail(1)
+                .sort_values("Score", ascending=False)
+            )
+            role_titles = latest_scores["Role"].tolist()
+        else:
+            role_titles = []
+
+        if not role_titles:
+            st.info("No saved recommendations for this profile yet.")
+        else:
+            role_for_progress = st.selectbox("Role learning path", role_titles)
+
+            role_def = next(
+                (r for r in matcher.roles if r["title"] == role_for_progress), None
+            )
+            if role_def:
+                existing_progress = {
+                    step: bool(completed)
+                    for step, completed, _ in db.get_progress(intern["id"], role_for_progress)
+                }
+
+                st.write("**Checklist:**")
+                completed_count = 0
+                for step in role_def["learning_path"]:
+                    checked = st.checkbox(
+                        step,
+                        value=existing_progress.get(step, False),
+                        key=f"{role_for_progress}-{step}",
+                    )
+                    db.set_step_progress(intern["id"], role_for_progress, step, checked)
+                    if checked:
+                        completed_count += 1
+
+                pct = int(100 * completed_count / len(role_def["learning_path"]))
+                st.progress(pct / 100, text=f"{pct}% complete")
+
+            st.divider()
+            st.write("**Recommendation score history**")
+            st.line_chart(
+                df_hist.pivot_table(
+                    index="Timestamp", columns="Role", values="Score", aggfunc="last"
+                ).ffill()
+            )
