@@ -1,0 +1,174 @@
+"""
+ml_model.py
+-----------
+A small TensorFlow neural network that scores how well an intern's
+skills + interests match each known job role.
+
+Because we don't have a large labeled dataset of real interns, this
+module *synthesizes* training examples from the role definitions in
+data/careers.json (each role's required_skills / related_interests act
+as "positive" profiles), adds controlled random noise so the model
+generalizes to partial/messy profiles, and trains a compact dense
+network. The model is retrained once on startup and cached to disk
+(models/role_matcher.keras) so subsequent runs are instant.
+
+This keeps the system honest: it is a lightweight similarity learner,
+not a claim of a production-grade recommender trained on real outcome
+data. Swap `_synthesize_training_data` for real historical intern ->
+role outcome data when available.
+"""
+
+import json
+import os
+import random
+from pathlib import Path
+
+import numpy as np
+import tensorflow as tf
+
+DATA_PATH = Path(__file__).parent / "data" / "careers.json"
+MODEL_DIR = Path(__file__).parent / "models"
+MODEL_PATH = MODEL_DIR / "role_matcher.keras"
+
+random.seed(42)
+np.random.seed(42)
+tf.random.set_seed(42)
+
+
+class RoleMatcher:
+    def __init__(self):
+        with open(DATA_PATH, "r") as f:
+            self.kb = json.load(f)
+
+        self.skills = self.kb["skills_taxonomy"]
+        self.interests = self.kb["interests_taxonomy"]
+        self.roles = self.kb["roles"]
+        self.role_ids = [r["id"] for r in self.roles]
+
+        self.skill_index = {s: i for i, s in enumerate(self.skills)}
+        self.interest_index = {i_: i for i, i_ in enumerate(self.interests)}
+
+        self.input_dim = len(self.skills) + len(self.interests)
+        self.output_dim = len(self.roles)
+
+        self.model = self._load_or_train_model()
+
+    # ---------- vectorization ----------
+
+    def vectorize(self, user_skills, user_interests):
+        """Turn a list of skill strings and interest strings into a
+        multi-hot feature vector matching the taxonomy."""
+        vec = np.zeros(self.input_dim, dtype=np.float32)
+        for s in user_skills:
+            s = s.strip().lower().replace(" ", "_")
+            if s in self.skill_index:
+                vec[self.skill_index[s]] = 1.0
+        for i_ in user_interests:
+            i_ = i_.strip().lower().replace(" ", "_")
+            if i_ in self.interest_index:
+                vec[len(self.skills) + self.interest_index[i_]] = 1.0
+        return vec
+
+    # ---------- synthetic training data ----------
+
+    def _role_base_vector(self, role):
+        vec = np.zeros(self.input_dim, dtype=np.float32)
+        for s in role["required_skills"]:
+            if s in self.skill_index:
+                vec[self.skill_index[s]] = 1.0
+        for i_ in role["related_interests"]:
+            if i_ in self.interest_index:
+                vec[len(self.skills) + self.interest_index[i_]] = 1.0
+        return vec
+
+    def _synthesize_training_data(self, samples_per_role=300):
+        X, y = [], []
+        for role_i, role in enumerate(self.roles):
+            base = self._role_base_vector(role)
+            for _ in range(samples_per_role):
+                noisy = base.copy()
+                # Randomly drop some of the role's own skills (partial match)
+                for idx in np.where(base == 1.0)[0]:
+                    if random.random() < 0.35:
+                        noisy[idx] = 0.0
+                # Randomly add unrelated skills/interests (noise)
+                for _ in range(random.randint(0, 4)):
+                    noisy[random.randint(0, self.input_dim - 1)] = 1.0
+
+                label = np.zeros(self.output_dim, dtype=np.float32)
+                label[role_i] = 1.0
+                X.append(noisy)
+                y.append(label)
+        return np.array(X), np.array(y)
+
+    # ---------- model ----------
+
+    def _build_model(self):
+        model = tf.keras.Sequential([
+            tf.keras.layers.Input(shape=(self.input_dim,)),
+            tf.keras.layers.Dense(64, activation="relu"),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(32, activation="relu"),
+            tf.keras.layers.Dense(self.output_dim, activation="softmax"),
+        ])
+        model.compile(
+            optimizer="adam",
+            loss="categorical_crossentropy",
+            metrics=["accuracy"],
+        )
+        return model
+
+    def _load_or_train_model(self):
+        if MODEL_PATH.exists():
+            try:
+                return tf.keras.models.load_model(MODEL_PATH)
+            except Exception:
+                pass  # fall through to retrain
+
+        model = self._build_model()
+        X, y = self._synthesize_training_data()
+        model.fit(X, y, epochs=15, batch_size=32, verbose=0, validation_split=0.1)
+
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        model.save(MODEL_PATH)
+        return model
+
+    # ---------- inference ----------
+
+    def match_roles(self, user_skills, user_interests, top_k=3):
+        """Returns a list of (role_dict, score 0-100) sorted by score desc."""
+        vec = self.vectorize(user_skills, user_interests).reshape(1, -1)
+        probs = self.model.predict(vec, verbose=0)[0]
+
+        ranked = sorted(
+            zip(self.roles, probs), key=lambda pair: pair[1], reverse=True
+        )[:top_k]
+
+        results = []
+        for role, prob in ranked:
+            # Blend model probability with a simple skill-overlap score so
+            # results stay interpretable even with a small synthetic model.
+            overlap = self._overlap_score(role, user_skills, user_interests)
+            score = round(float(0.5 * prob * 100 + 0.5 * overlap), 1)
+            results.append((role, score))
+        return results
+
+    def _overlap_score(self, role, user_skills, user_interests):
+        user_skills = {s.strip().lower().replace(" ", "_") for s in user_skills}
+        user_interests = {i.strip().lower().replace(" ", "_") for i in user_interests}
+        req_skills = set(role["required_skills"])
+        req_interests = set(role["related_interests"])
+
+        skill_overlap = len(user_skills & req_skills) / max(len(req_skills), 1)
+        interest_overlap = len(user_interests & req_interests) / max(len(req_interests), 1)
+        return 100 * (0.7 * skill_overlap + 0.3 * interest_overlap)
+
+
+_matcher_singleton = None
+
+
+def get_matcher():
+    global _matcher_singleton
+    if _matcher_singleton is None:
+        _matcher_singleton = RoleMatcher()
+    return _matcher_singleton
